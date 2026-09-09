@@ -1,0 +1,10 @@
+﻿scenario_code,scenario,concurrency,request_count,failure_count,failure_rate_pct,rps,average_ms,median_ms,p95_ms,p99_ms,max_ms
+A,Authenticated GET Items,10,1174,0,0.0,9.8,13.83,13.0,21.0,35.0,72.32
+A,Authenticated GET Items,50,5863,0,0.0,48.98,20.25,15.0,47.0,100.0,307.12
+A,Authenticated GET Items,100,11325,0,0.0,94.61,59.12,32.0,190.0,620.0,1142.27
+B,Create + Get Item,10,2330,0,0.0,19.52,14.38,13.0,28.0,41.0,80.91
+B,Create + Get Item,50,10964,0,0.0,91.72,44.56,29.0,120.0,270.0,894.97
+B,Create + Get Item,100,14222,0,0.0,118.85,337.66,320.0,530.0,790.0,1360.52
+C,Mixed CRUD 5:2:2:1,10,1156,0,0.0,9.72,16.45,15.0,29.0,34.0,81.77
+C,Mixed CRUD 5:2:2:1,50,5795,0,0.0,48.68,21.13,16.0,47.0,120.0,341.71
+C,Mixed CRUD 5:2:2:1,100,10516,0,0.0,88.31,130.84,81.0,420.0,910.0,1601.57

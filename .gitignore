@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+
+# Pytest
+.pytest_cache/
+
+# IDE
+.idea/
+
+# Playwright runtime artifacts
+test-results/
+playwright-report/
+
+# Local HTML reports
+reports/*.html
+
+# OS
+.DS_Store
+Thumbs.db

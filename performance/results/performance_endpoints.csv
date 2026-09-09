@@ -1,0 +1,22 @@
+﻿scenario_code,scenario,concurrency,method,name,request_count,failure_count,failure_rate_pct,rps,average_ms,median_ms,p95_ms,p99_ms,max_ms
+A,Authenticated GET Items,10,GET,GET /items,1174,0,0.0,9.8,13.83,13.0,21.0,35.0,72.32
+A,Authenticated GET Items,50,GET,GET /items,5863,0,0.0,48.98,20.25,15.0,47.0,100.0,307.12
+A,Authenticated GET Items,100,GET,GET /items,11325,0,0.0,94.61,59.12,32.0,190.0,620.0,1142.27
+B,Create + Get Item,10,POST,B01 POST /items,1165,0,0.0,9.76,18.18,16.0,30.0,53.0,80.91
+B,Create + Get Item,10,GET,B02 GET /items/{id},1165,0,0.0,9.76,10.59,9.0,20.0,34.0,52.55
+B,Create + Get Item,50,POST,B01 POST /items,5481,0,0.0,45.85,53.87,35.0,140.0,340.0,894.97
+B,Create + Get Item,50,GET,B02 GET /items/{id},5483,0,0.0,45.87,35.25,24.0,97.0,210.0,594.32
+B,Create + Get Item,100,POST,B01 POST /items,7114,0,0.0,59.45,375.37,360.0,560.0,860.0,1360.52
+B,Create + Get Item,100,GET,B02 GET /items/{id},7108,0,0.0,59.4,299.91,280.0,480.0,680.0,1201.96
+C,Mixed CRUD 5:2:2:1,10,GET,C01 GET /items,576,0,0.0,4.84,15.08,15.0,23.0,30.0,57.36
+C,Mixed CRUD 5:2:2:1,10,GET,C02 GET /items/{id},230,0,0.0,1.93,12.68,12.0,18.0,30.0,56.0
+C,Mixed CRUD 5:2:2:1,10,POST,C03 POST /items,239,0,0.0,2.01,20.25,18.0,30.0,34.0,43.29
+C,Mixed CRUD 5:2:2:1,10,PUT,C04 PUT /items/{id},111,0,0.0,0.93,23.2,19.0,33.0,75.0,81.77
+C,Mixed CRUD 5:2:2:1,50,GET,C01 GET /items,2849,0,0.0,23.93,20.19,15.0,42.0,96.0,267.82
+C,Mixed CRUD 5:2:2:1,50,GET,C02 GET /items/{id},1196,0,0.0,10.05,17.41,13.0,40.0,130.0,269.37
+C,Mixed CRUD 5:2:2:1,50,POST,C03 POST /items,1128,0,0.0,9.47,25.03,18.0,54.0,170.0,295.21
+C,Mixed CRUD 5:2:2:1,50,PUT,C04 PUT /items/{id},622,0,0.0,5.22,25.49,19.0,55.0,92.0,341.71
+C,Mixed CRUD 5:2:2:1,100,GET,C01 GET /items,5271,0,0.0,44.26,121.81,76.0,380.0,870.0,1503.37
+C,Mixed CRUD 5:2:2:1,100,GET,C02 GET /items/{id},2049,0,0.0,17.21,111.81,65.0,370.0,860.0,1256.04
+C,Mixed CRUD 5:2:2:1,100,POST,C03 POST /items,2183,0,0.0,18.33,154.78,100.0,470.0,960.0,1412.55
+C,Mixed CRUD 5:2:2:1,100,PUT,C04 PUT /items/{id},1013,0,0.0,8.51,164.77,110.0,500.0,1100.0,1601.57

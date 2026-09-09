@@ -1,0 +1,6 @@
+pytest
+requests
+psycopg[binary]
+pytest-playwright
+locust
+pytest-html

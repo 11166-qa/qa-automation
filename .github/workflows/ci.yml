@@ -1,0 +1,131 @@
+name: QA Automation CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  automated-tests:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout QA automation project
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install QA dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-lock.txt
+
+      - name: Install Playwright Chromium
+        run: |
+          python -m playwright install --with-deps chromium
+
+      - name: Clone FastAPI system under test
+        run: |
+          git clone https://github.com/fastapi/full-stack-fastapi-template.git sut
+          cd sut
+          git checkout cb740b656d7a0a6c5e12c7bf8e50343ec94ee9c7
+
+      - name: Apply connection pool tuning
+        run: |
+          git -C sut apply ../performance/connection_pool_tuning.patch
+
+      - name: Start PostgreSQL
+        working-directory: sut
+        run: |
+          docker compose up -d db
+
+      - name: Wait for PostgreSQL
+        working-directory: sut
+        run: |
+          for i in {1..30}; do
+            if docker compose exec -T db pg_isready -U postgres -d app; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+
+          echo "PostgreSQL failed to start"
+          docker compose logs db
+          exit 1
+
+      - name: Initialize database
+        working-directory: sut
+        run: |
+          docker compose run --rm backend bash scripts/prestart.sh
+
+      - name: Start FastAPI backend
+        working-directory: sut
+        run: |
+          docker compose up -d --build backend
+
+      - name: Wait for FastAPI
+        run: |
+          for i in {1..60}; do
+            if curl --fail http://localhost:8000/api/v1/utils/health-check/; then
+              echo "FastAPI is ready"
+              exit 0
+            fi
+
+            echo "Waiting for FastAPI..."
+            sleep 2
+          done
+
+          echo "FastAPI failed to start"
+          docker compose -f sut/compose.yml -f sut/compose.override.yml logs backend
+          exit 1
+
+      - name: Create report directory
+        run: |
+          mkdir -p reports
+
+      - name: Run API, database and UI tests
+        run: |
+          python -m pytest \
+            tests/api \
+            tests/database \
+            tests/ui \
+            --html=reports/test_report.html \
+            --self-contained-html
+
+      - name: Show Docker logs on failure
+        if: failure()
+        working-directory: sut
+        run: |
+          docker compose ps
+          docker compose logs backend --tail=300
+          docker compose logs db --tail=200
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-test-report
+          path: |
+            reports/test_report.html
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Stop test environment
+        if: always()
+        working-directory: sut
+        run: |
+          docker compose down -v
