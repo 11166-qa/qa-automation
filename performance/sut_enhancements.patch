@@ -1,0 +1,340 @@
+diff --git a/backend/app/api/routes/items.py b/backend/app/api/routes/items.py
+index f0eb30e..5519ead 100644
+--- a/backend/app/api/routes/items.py
++++ b/backend/app/api/routes/items.py
+@@ -6,13 +6,17 @@ from sqlmodel import col, func, select
+
+ from app.api.deps import CurrentUser, SessionDep
+ from app.models import Item, ItemCreate, ItemPublic, ItemsPublic, ItemUpdate, Message
+-
++from app.core.cache import cache_delete, cache_get, cache_set
++from app.core.config import settings
+ router = APIRouter(prefix="/items", tags=["items"])
+
+
+ @router.get("/", response_model=ItemsPublic)
+ def read_items(
+-    session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
++    session: SessionDep,
++    current_user: CurrentUser,
++    skip: int = 0,
++    limit: int = 100,
+ ) -> Any:
+     """
+     Retrieve items.
+@@ -21,17 +25,25 @@ def read_items(
+     if current_user.is_superuser:
+         count_statement = select(func.count()).select_from(Item)
+         count = session.exec(count_statement).one()
++
+         statement = (
+-            select(Item).order_by(col(Item.created_at).desc()).offset(skip).limit(limit)
++            select(Item)
++            .order_by(col(Item.created_at).desc())
++            .offset(skip)
++            .limit(limit)
+         )
++
+         items = session.exec(statement).all()
++
+     else:
+         count_statement = (
+             select(func.count())
+             .select_from(Item)
+             .where(Item.owner_id == current_user.id)
+         )
++
+         count = session.exec(count_statement).one()
++
+         statement = (
+             select(Item)
+             .where(Item.owner_id == current_user.id)
+@@ -39,24 +51,75 @@ def read_items(
+             .offset(skip)
+             .limit(limit)
+         )
++
+         items = session.exec(statement).all()
+
+-    items_public = [ItemPublic.model_validate(item) for item in items]
+-    return ItemsPublic(data=items_public, count=count)
++    items_public = [
++        ItemPublic.model_validate(item)
++        for item in items
++    ]
++
++    return ItemsPublic(
++        data=items_public,
++        count=count,
++    )
+
+
+ @router.get("/{id}", response_model=ItemPublic)
+-def read_item(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Any:
++def read_item(
++    session: SessionDep,
++    current_user: CurrentUser,
++    id: uuid.UUID,
++) -> Any:
+     """
+     Get item by ID.
+     """
++
++    cache_key = f"item:{id}"
++
++    if settings.CACHE_ENABLED:
++        cached_item = cache_get(cache_key)
++
++        if cached_item:
++            item = Item.model_validate_json(
++                cached_item
++            )
++
++            if (
++                not current_user.is_superuser
++                and item.owner_id != current_user.id
++            ):
++                raise HTTPException(
++                    status_code=403,
++                    detail="Not enough permissions",
++                )
++
++            return item
++
+     item = session.get(Item, id)
++
+     if not item:
+-        raise HTTPException(status_code=404, detail="Item not found")
+-    if not current_user.is_superuser and (item.owner_id != current_user.id):
+-        raise HTTPException(status_code=403, detail="Not enough permissions")
+-    return item
++        raise HTTPException(
++            status_code=404,
++            detail="Item not found",
++        )
+
++    if (
++        not current_user.is_superuser
++        and item.owner_id != current_user.id
++    ):
++        raise HTTPException(
++            status_code=403,
++            detail="Not enough permissions",
++        )
++
++    if settings.CACHE_ENABLED:
++        cache_set(
++            cache_key,
++            item.model_dump_json(),
++        )
++
++    return item
+
+ @router.post("/", response_model=ItemPublic)
+ def create_item(
+@@ -93,6 +156,9 @@ def update_item(
+     session.add(item)
+     session.commit()
+     session.refresh(item)
++
++    cache_delete(f"item:{id}")
++
+     return item
+
+
+@@ -110,4 +176,7 @@ def delete_item(
+         raise HTTPException(status_code=403, detail="Not enough permissions")
+     session.delete(item)
+     session.commit()
++
++    cache_delete(f"item:{id}")
++
+     return Message(message="Item deleted successfully")
+diff --git a/backend/app/core/cache.py b/backend/app/core/cache.py
+new file mode 100644
+index 0000000..91bf09d
+--- /dev/null
++++ b/backend/app/core/cache.py
+@@ -0,0 +1,47 @@
++import logging
++
++from redis import Redis
++from redis.exceptions import RedisError
++
++from app.core.config import settings
++
++
++logger = logging.getLogger(__name__)
++
++
++redis_client = Redis.from_url(
++    settings.REDIS_URL,
++    decode_responses=True,
++    socket_connect_timeout=1,
++    socket_timeout=1,
++)
++
++
++def cache_get(key: str) -> str | None:
++    try:
++        return redis_client.get(key)
++    except RedisError:
++        logger.exception("Redis GET failed for key %s", key)
++        return None
++
++
++def cache_set(
++    key: str,
++    value: str,
++    ttl: int | None = None,
++) -> None:
++    try:
++        redis_client.setex(
++            key,
++            ttl or settings.CACHE_TTL_SECONDS,
++            value,
++        )
++    except RedisError:
++        logger.exception("Redis SET failed for key %s", key)
++
++
++def cache_delete(key: str) -> None:
++    try:
++        redis_client.delete(key)
++    except RedisError:
++        logger.exception("Redis DELETE failed for key %s", key)
+\ No newline at end of file
+diff --git a/backend/app/core/config.py b/backend/app/core/config.py
+index 095f72e..293719d 100644
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -29,6 +29,9 @@ class Settings(BaseSettings):
+     PROJECT_NAME: str
+     SENTRY_DSN: HttpUrl | None = None
+     DATABASE_URL: PostgresDsn
++    REDIS_URL: str = "redis://redis:6379/0"
++    CACHE_TTL_SECONDS: int = 300
++    CACHE_ENABLED: bool = True
+
+     @field_validator("DATABASE_URL", mode="before")
+     @classmethod
+diff --git a/backend/app/core/db.py b/backend/app/core/db.py
+index d11b0eb..601d3b1 100644
+--- a/backend/app/core/db.py
++++ b/backend/app/core/db.py
+@@ -4,7 +4,13 @@ from app import crud
+ from app.core.config import settings
+ from app.models import User, UserCreate
+
+-engine = create_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
++engine = create_engine(
++    str(settings.DATABASE_URL),
++    pool_pre_ping=True,
++    pool_size=20,
++    max_overflow=20,
++    pool_timeout=30,
++)
+
+
+ # make sure all SQLModel models are imported (app.models) before initializing DB
+diff --git a/backend/pyproject.toml b/backend/pyproject.toml
+index 3a7d587..4f5c28e 100644
+--- a/backend/pyproject.toml
++++ b/backend/pyproject.toml
+@@ -18,6 +18,7 @@ dependencies = [
+     "sentry-sdk[fastapi]>=2.68.1,<3.0.0",
+     "pyjwt<3.0.0,>=2.13.0",
+     "pwdlib[argon2,bcrypt]>=0.3.1",
++    "redis>=6.0.0,<7.0.0",
+ ]
+
+ [dependency-groups]
+diff --git a/compose.override.yml b/compose.override.yml
+index 38060ba..f612967 100644
+--- a/compose.override.yml
++++ b/compose.override.yml
+@@ -26,6 +26,9 @@ services:
+   db:
+     ports:
+       - "5432:5432"
++  redis:
++    ports:
++      - "6379:6379"
+
+   adminer:
+     ports:
+diff --git a/compose.yml b/compose.yml
+index 110eb5c..9b661df 100644
+--- a/compose.yml
++++ b/compose.yml
+@@ -30,6 +30,14 @@ services:
+     environment:
+       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Variable not set}
+       - POSTGRES_DB=app
++  redis:
++    image: redis:7-alpine
++    healthcheck:
++      test: [ "CMD", "redis-cli", "ping" ]
++      interval: 5s
++      timeout: 3s
++      retries: 5
++      start_period: 5s
+
+   adminer:
+     image: adminer
+@@ -52,6 +60,9 @@ services:
+       db:
+         condition: service_healthy
+         restart: true
++      redis:
++        condition: service_healthy
++        restart: true
+     environment:
+       PROJECT_NAME: ${PROJECT_NAME:?Variable not set}
+       SECRET_KEY: ${SECRET_KEY:?Variable not set}
+@@ -62,6 +73,9 @@ services:
+       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+       EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL}
+       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Variable not set}@db:5432/app
++      REDIS_URL: redis://redis:6379/0
++      CACHE_TTL_SECONDS: 300
++      CACHE_ENABLED: ${CACHE_ENABLED:-true}
+       SENTRY_DSN: ${SENTRY_DSN:-}
+
+     healthcheck:
+diff --git a/uv.lock b/uv.lock
+index 2644285..ba9b228 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -80,6 +80,7 @@ dependencies = [
+     { name = "pydantic-settings" },
+     { name = "pyjwt" },
+     { name = "python-multipart" },
++    { name = "redis" },
+     { name = "sentry-sdk", extra = ["fastapi"] },
+     { name = "sqlmodel" },
+ ]
+@@ -107,6 +108,7 @@ requires-dist = [
+     { name = "pydantic-settings", specifier = ">=2.2.1,<3.0.0" },
+     { name = "pyjwt", specifier = ">=2.13.0,<3.0.0" },
+     { name = "python-multipart", specifier = ">=0.0.27,<1.0.0" },
++    { name = "redis", specifier = ">=6.0.0,<7.0.0" },
+     { name = "sentry-sdk", extras = ["fastapi"], specifier = ">=2.68.1,<3.0.0" },
+     { name = "sqlmodel", specifier = ">=0.0.39,<1.0.0" },
+ ]
+@@ -1184,6 +1186,15 @@ wheels = [
+     { url = "https://files.pythonhosted.org/packages/f1/12/de94a39c2ef588c7e6455cfbe7343d3b2dc9d6b6b2f40c4c6565744c873d/pyyaml-6.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:ebc55a14a21cb14062aa4162f906cd962b28e2e9ea38f9b4391244cd8de4ae0b", size = 149341, upload-time = "2025-09-25T21:32:56.828Z" },
+ ]
+
++[[package]]
++name = "redis"
++version = "6.4.0"
++source = { registry = "https://pypi.org/simple" }
++sdist = { url = "https://files.pythonhosted.org/packages/0d/d6/e8b92798a5bd67d659d51a18170e91c16ac3b59738d91894651ee255ed49/redis-6.4.0.tar.gz", hash = "sha256:b01bc7282b8444e28ec36b261df5375183bb47a07eb9c603f284e89cbc5ef010", size = 4647399, upload-time = "2025-08-07T08:10:11.441Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/e8/02/89e2ed7e85db6c93dfa9e8f691c5087df4e3551ab39081a4d7c6d1f90e05/redis-6.4.0-py3-none-any.whl", hash = "sha256:f0544fa9604264e9464cdf4814e7d4830f74b165d52f2a330a760a88dd248b7f", size = 279847, upload-time = "2025-08-07T08:10:09.84Z" },
++]
++
+ [[package]]
+ name = "rich"
+ version = "15.0.0"

@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-
+from utils.redis_client import RedisClient
 
 LOCAL_PLAYWRIGHT_PATH = Path(
     r"D:\P2\playwright-browsers"
@@ -187,3 +187,12 @@ def logged_in_page(
     )
 
     return page
+@pytest.fixture(scope="session")
+def redis_client():
+    client = RedisClient()
+
+    assert client.ping() is True
+
+    yield client
+
+    client.close()

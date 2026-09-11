@@ -43,3 +43,7 @@ DB_PASSWORD = os.getenv(
     "QA_DB_PASSWORD",
     "changethis",
 )
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+REDIS_DB = 0
+REDIS_TIMEOUT = 2

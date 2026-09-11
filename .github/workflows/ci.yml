@@ -40,14 +40,14 @@ jobs:
           cd sut
           git checkout cb740b656d7a0a6c5e12c7bf8e50343ec94ee9c7
 
-      - name: Apply connection pool tuning
+      - name: Apply SUT enhancements
         run: |
-          git -C sut apply ../performance/connection_pool_tuning.patch
+          git -C sut apply ../performance/sut_enhancements.patch
 
-      - name: Start PostgreSQL
+      - name: Start PostgreSQL and Redis
         working-directory: sut
         run: |
-          docker compose up -d db
+          docker compose up -d db redis
 
       - name: Wait for PostgreSQL
         working-directory: sut
@@ -64,6 +64,22 @@ jobs:
 
           echo "PostgreSQL failed to start"
           docker compose logs db
+          exit 1
+      - name: Wait for Redis
+        working-directory: sut
+        run: |
+          for i in {1..30}; do
+            if docker compose exec -T redis redis-cli ping | grep -q PONG; then
+              echo "Redis is ready"
+              exit 0
+            fi
+
+            echo "Waiting for Redis..."
+            sleep 2
+          done
+
+          echo "Redis failed to start"
+          docker compose logs redis
           exit 1
 
       - name: Initialize database
@@ -96,11 +112,12 @@ jobs:
         run: |
           mkdir -p reports
 
-      - name: Run API, database and UI tests
+      - name: Run automated tests
         run: |
           python -m pytest \
             tests/api \
             tests/database \
+            tests/cache \
             tests/ui \
             --html=reports/test_report.html \
             --self-contained-html
@@ -112,6 +129,7 @@ jobs:
           docker compose ps
           docker compose logs backend --tail=300
           docker compose logs db --tail=200
+          docker compose logs redis --tail=200
 
       - name: Upload test report
         if: always()
